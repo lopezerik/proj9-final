@@ -38,6 +38,9 @@ SCOPES = 'https://www.googleapis.com/auth/calendar.readonly'
 CLIENT_SECRET_FILE = CONFIG.GOOGLE_KEY_FILE  ## You'll need this
 APPLICATION_NAME = 'MeetMe class project'
 
+CAL_LIST = {}
+checked = {}
+
 #############################
 #
 #  Pages (routed from URLs)
@@ -68,6 +71,84 @@ def choose():
     app.logger.debug("Returned from get_gcal_service")
     flask.g.calendars = list_calendars(gcal_service)
     return render_template('index.html')
+
+@app.route("/showBlocking")
+def showBlocking():
+    print("Generating blocking list")
+    # Get credentials and gcal_service to pull events
+    credentials = valid_credentials()
+    if not credentials:
+        app.logger.debug("Redirecting to authorization")
+        return flask.redirect(flask.url_for('oauth2callback'))
+
+    gcal_service = get_gcal_service(credentials)
+    app.logger.debug("Returned from get_gcal_service")
+    print(flask.session["begin_date"])
+    print(flask.session["end_date"])
+    print(flask.session["endtime"])
+    print(flask.session["begtime"])
+    timestart = time_to_int(flask.session['begtime'])
+    timeend = time_to_int(flask.session['endtime'])
+    beg = flask.session["begin_date"]
+    end = flask.session["end_date"]
+    arrbeg = arrow.get(beg)
+    arrbeg = arrbeg.shift(hours=timestart)
+    
+    arrend = arrow.get(end)
+    arrend = arrend.shift(hours=timeend)
+    flask.g.range = [arrbeg.format("MM-DD-YYYY"), arrend.format("MM-DD-YYYY"), arrbeg.format("h:mmA"), 
+                     arrend.format("h:mmA")]
+    results = []
+    for cal in checked:
+        events = gcal_service.events().list(calendarId=cal, singleEvents=True, timeMin=beg, timeMax=end).execute()
+        items = events["items"]
+        for item in items:
+            if ('transparency' in item) and (item['transparency'] != "opaque"):
+                continue
+            start = item['start']['dateTime']
+            start = arrow.get(start)
+            startClone = start.clone()
+            startClone = startClone.floor('day')
+            startClone = startClone.shift(hours=timestart)
+
+            end = item['end']['dateTime']
+            end = arrow.get(end)
+            endClone = end.clone()
+            endClone = endClone.floor('day')
+            endClone = endClone.shift(hours=timeend)
+            
+            if (startClone < end <= endClone):
+                print("Adding a busy appointment")
+                results.append(
+                    { "summary": item['summary'],
+                      "start": start.format("MM-DD-YYYY h:mmA"),
+                      "end": end.format("MM-DD-YYYY h:mmA")
+                    })
+    
+    flask.g.busy = results
+    
+    return flask.render_template('busy.html')
+
+#############################
+#
+#  Helper functions (routed from URLs)
+#
+#############################
+
+@app.route("/addToChecked")
+def addToChecked():
+    print("Adding to checked list")
+    calId = flask.request.args.get("id")
+    # placeholder, later to be replaced with event data
+    checked[calId] = None
+    return flask.jsonify(None)
+
+@app.route("/rmFromChecked")
+def rmFromChecked():
+    print("Removing from checked list")
+    calId = flask.request.args.get("id")
+    del(checked[calId])
+    return flask.jsonify(None)
 
 ####
 #
@@ -196,6 +277,10 @@ def setrange():
       request.form.get('daterange')))
     daterange = request.form.get('daterange')
     flask.session['daterange'] = daterange
+    begtime = request.form.get('timestart')
+    flask.session['begtime'] = begtime
+    endtime = request.form.get('timeend')
+    flask.session['endtime'] = endtime
     daterange_parts = daterange.split()
     flask.session['begin_date'] = interpret_date(daterange_parts[0])
     flask.session['end_date'] = interpret_date(daterange_parts[2])
@@ -298,6 +383,7 @@ def list_calendars(service):
     for cal in calendar_list:
         kind = cal["kind"]
         id = cal["id"]
+        CAL_LIST[id] = cal
         if "description" in cal: 
             desc = cal["description"]
         else:
@@ -307,7 +393,6 @@ def list_calendars(service):
         selected = ("selected" in cal) and cal["selected"]
         primary = ("primary" in cal) and cal["primary"]
         
-
         result.append(
           { "kind": kind,
             "id": id,
@@ -334,6 +419,11 @@ def cal_sort_key( cal ):
        primary_key = "X"
     return (primary_key, selected_key, cal["summary"])
 
+def time_to_int(time):
+    parts = time.split(':')
+    if parts[1] == '30':
+        return int(parts[0]) + .5
+    return int(parts[0])
 
 #################
 #

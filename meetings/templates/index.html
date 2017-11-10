@@ -38,10 +38,10 @@
 <h1>Busy times</h1>
 
 <!--
-  -- If there are any warnings or other messages from a prior action,
-  -- they appear above the rest of the content, just until the next 
-  -- action.
-  -->
+   If there are any warnings or other messages from a prior action,
+   they appear above the rest of the content, just until the next 
+   action.
+  --!>
 
 {% with messages = get_flashed_messages() %}
   {% if messages %}
@@ -78,8 +78,12 @@
        );
     });
   </script>
+  </br><h3>Time Range</h3>
+  <input type="time" name="timestart" size="12" value="14:00" step="1800">
+  <input type="time" name="timeend" size="12" value="15:00" step="1800">
+  <br />
 
-<br /><input type="submit" value="Choose" />
+<br /><input type="submit" value="Choose" name="chooseBtn" />
 </form>
 
     <!--
@@ -92,6 +96,7 @@
   <div class="row">
   {% for cal in g.calendars if cal.selected %}
           <div class="col-md-4">
+          <input type="checkbox" id="{{ cal.id }}" onclick="check(this.id)">
 	   {{ cal.summary }}
           </div>
          {% if loop.index is divisibleby 3 %}
@@ -100,7 +105,60 @@
   {% endfor %}
   </div>
 {% endif %}
-    
+  <button onclick="calcBusy()"> Show Busy Times </button>
 
   </div>  <!-- container (for bootstrap) -->
-  </body> </html>
+  </body> 
+<script>
+  var numChecked = 0;
+  function check(click_id){
+
+    // Check status of checkbox and respond accordingly
+    var box = document.getElementById(click_id);
+    if(box.checked){
+        $.get("/addToChecked", {"id": click_id});
+        numChecked++;
+    } else{
+        $.get("/rmFromChecked", {"id": click_id});
+        numChecked--;
+    }
+  }
+
+  function calcBusy(){
+    // Call /showBlocking iff there is at least one calendar checked
+    if(numChecked == 0){
+        alert("Please select at least one calendar.");
+    } else{
+        window.location.assign("/showBlocking");
+    }
+  }
+
+  // If a meeting is 24hrs long, or longer, disable the choose date button
+  $("input[name='timestart']").change(
+      function(){
+          var timestart = $(this).val();
+          var timeend = $("input[name='timeend']").val();
+          if(timeend > timestart){
+              $("input[name='chooseBtn']").prop('disabled', false);
+          } else{
+              $("input[name='chooseBtn']").prop('disabled', true);
+          }
+      });
+
+  // If a meeting is 24hrs long, or longer, disable the choose date button
+  $("input[name='timeend']").change(
+      function(){
+          var timestart = $("input[name='timestart']").val();
+          var timeend = $(this).val();
+          if(timeend > timestart){
+              $("input[name='chooseBtn']").prop('disabled', false);
+          } else{
+              $("input[name='chooseBtn']").prop('disabled', true);
+          }
+          
+      });
+
+</script>
+</script>
+
+</html>
