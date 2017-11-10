@@ -38,7 +38,6 @@ SCOPES = 'https://www.googleapis.com/auth/calendar.readonly'
 CLIENT_SECRET_FILE = CONFIG.GOOGLE_KEY_FILE  ## You'll need this
 APPLICATION_NAME = 'MeetMe class project'
 
-CAL_LIST = {}
 checked = {}
 
 #############################
@@ -83,14 +82,14 @@ def showBlocking():
 
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
-    print(flask.session["begin_date"])
-    print(flask.session["end_date"])
-    print(flask.session["endtime"])
-    print(flask.session["begtime"])
+    
+    # Time parsing for website display and calculations
     timestart = time_to_int(flask.session['begtime'])
     timeend = time_to_int(flask.session['endtime'])
+
     beg = flask.session["begin_date"]
     end = flask.session["end_date"]
+
     arrbeg = arrow.get(beg)
     arrbeg = arrbeg.shift(hours=timestart)
     
@@ -98,11 +97,15 @@ def showBlocking():
     arrend = arrend.shift(hours=timeend)
     flask.g.range = [arrbeg.format("MM-DD-YYYY"), arrend.format("MM-DD-YYYY"), arrbeg.format("h:mmA"), 
                      arrend.format("h:mmA")]
+
     results = []
+    # loop through all calenders that were checked on the main page
     for cal in checked:
+        # grab events from cal
         events = gcal_service.events().list(calendarId=cal, singleEvents=True, timeMin=beg, timeMax=end).execute()
         items = events["items"]
         for item in items:
+            # skip if nonblocking event
             if ('transparency' in item) and (item['transparency'] != "opaque"):
                 continue
             start = item['start']['dateTime']
@@ -118,7 +121,7 @@ def showBlocking():
             endClone = endClone.shift(hours=timeend)
             
             if (startClone < end <= endClone):
-                print("Adding a busy appointment")
+                app.logger.debug("Adding a busy appointment")
                 results.append(
                     { "summary": item['summary'],
                       "start": start.format("MM-DD-YYYY h:mmA"),
@@ -137,15 +140,15 @@ def showBlocking():
 
 @app.route("/addToChecked")
 def addToChecked():
-    print("Adding to checked list")
+    app.logger.debug("Adding to checked list")
     calId = flask.request.args.get("id")
-    # placeholder, later to be replaced with event data
+    # placeholder, easier to use dict for lookups, delete, etc
     checked[calId] = None
     return flask.jsonify(None)
 
 @app.route("/rmFromChecked")
 def rmFromChecked():
-    print("Removing from checked list")
+    app.logger.debug("Removing from checked list")
     calId = flask.request.args.get("id")
     del(checked[calId])
     return flask.jsonify(None)
@@ -383,7 +386,6 @@ def list_calendars(service):
     for cal in calendar_list:
         kind = cal["kind"]
         id = cal["id"]
-        CAL_LIST[id] = cal
         if "description" in cal: 
             desc = cal["description"]
         else:
