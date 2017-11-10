@@ -2,7 +2,7 @@
 Snarf appointment data from a selection of a user's Google calendars 
 
 # Author
-Erik Lopez Raya
+Erik Lopez Raya  
 elopezr2 (at) uoregon edu
 
 # :calendar: Busy Time calculator :calendar:
