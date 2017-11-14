@@ -11,3 +11,6 @@ what appointments you have scheduled during that period.
 
 # Google API
 Makes use of the Google Calendar API to pull events from your Google Calendar(s).  
+
+# NOTE
+Use of the back button can produce undesired results. IF you use the back button, make sure to hit "Choose" again.  
