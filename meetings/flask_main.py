@@ -110,13 +110,19 @@ def showBlocking():
             # skip if nonblocking event
             if ('transparency' in item) and (item['transparency'] != "opaque"):
                 continue
-            start = item['start']['dateTime']
+            if('dateTime' not in item['start']):
+                start = item['start']['date']
+            else:
+                start = item['start']['dateTime']
             start = arrow.get(start)
             startClone = start.clone()
             startClone = startClone.floor('day')
             startClone = startClone.shift(hours=timestart)
 
-            end = item['end']['dateTime']
+            if('dateTime' not in item['end']):
+                end = item['end']['date']
+            else:
+                end = item['end']['dateTime']
             end = arrow.get(end)
             endClone = end.clone()
             endClone = endClone.floor('day')
