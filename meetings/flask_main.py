@@ -105,6 +105,8 @@ def showBlocking():
         events = gcal_service.events().list(calendarId=cal, singleEvents=True, timeMin=beg, timeMax=end).execute()
         items = events["items"]
         for item in items:
+            print("printing item")
+            print(item)
             # skip if nonblocking event
             if ('transparency' in item) and (item['transparency'] != "opaque"):
                 continue
@@ -130,6 +132,8 @@ def showBlocking():
     
     flask.g.busy = results
     
+    for k in list(checked.keys()):
+        del(checked[k])
     return flask.render_template('busy.html')
 
 #############################
