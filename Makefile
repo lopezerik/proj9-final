@@ -1,5 +1,5 @@
 #
-#  Project 7: Pull Google calendar events 
+#  Project 8: Pull Google calendar events 
 
 ##############
 #  Virtual environment

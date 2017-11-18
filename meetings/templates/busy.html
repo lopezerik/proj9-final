@@ -36,7 +36,7 @@
 <div class="container">
 
 <h1>Busy Times</h1>
-
+<p> Warning, browser caching can provide undesired results </p>
 <!--
    If there are any warnings or other messages from a prior action,
    they appear above the rest of the content, just until the next 
@@ -75,8 +75,26 @@
         </div>
   {% endfor %}
 {% endif %}
+<p> &nbsp; </p>
+{% if g.busy is defined  %}
 
+  <h3> Free Blocks By Calendar</h3>
+  {% for item in g.free %}
+        <div class="row">
+          <div class="col-md-12">
+	   <b>{{ item.start }}</b> - {{ item.end }} - {{ item.a }}
+          </div>
+        </div>
+  {% endfor %}
+{% endif %}
+
+  <button onclick="returnToMain()"> Return to calendar selection </button>
   </div>  <!-- container (for bootstrap) -->
   </body> 
 
+<script>
+  function returnToMain(){
+      window.location.replace('/index');
+  }
+</script>
 </html>
