@@ -93,10 +93,11 @@
     prefer down then across). 
     -->
 {% if g.calendars is defined  %}
+<form action="/showBlocking">
   <div class="row">
   {% for cal in g.calendars if cal.selected %}
           <div class="col-md-4">
-          <input type="checkbox" id="{{ cal.id }}" onclick="check(this.id)">
+          <input type="checkbox" value="{{ cal.id }}" name="checked">
 	   {{ cal.summary }}
           </div>
          {% if loop.index is divisibleby 3 %}
@@ -104,36 +105,13 @@
          {% endif %}
   {% endfor %}
   </div>
+  <input type="submit" id="submit" value="Show Busy and Free Times">
+</form>
 {% endif %}
-  <button onclick="calcBusy()"> Show Busy and Free Times </button>
 
   </div>  <!-- container (for bootstrap) -->
   </body> 
 <script>
-  var numChecked = 0;
-  function check(click_id){
-
-    // Check status of checkbox and respond accordingly
-    var box = document.getElementById(click_id);
-    if(box.checked){
-        $.get("/addToChecked", {"id": click_id});
-        numChecked++;
-    } else{
-        $.get("/rmFromChecked", {"id": click_id});
-        numChecked--;
-    }
-  }
-
-  function calcBusy(){
-    console.log(($("input[name='timestart']").val()));
-    // Call /showBlocking iff there is at least one calendar checked
-    if(numChecked == 0){
-        alert("Please select at least one calendar.");
-    } else{
-        window.location.assign("/showBlocking");
-    }
-  }
-
   // If a meeting is 24hrs long, or longer, disable the choose date button
   $("input[name='timestart']").change(
       function(){

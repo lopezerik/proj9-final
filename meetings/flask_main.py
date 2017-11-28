@@ -40,8 +40,6 @@ SCOPES = 'https://www.googleapis.com/auth/calendar.readonly'
 CLIENT_SECRET_FILE = CONFIG.GOOGLE_KEY_FILE  ## You'll need this
 APPLICATION_NAME = 'MeetMe class project'
 
-checked = {}
-
 #############################
 #
 #  Pages (routed from URLs)
@@ -105,6 +103,7 @@ def showBlocking():
     results = []
     allDays = []
     # loop through all calenders that were checked on the main page
+    checked = request.values.getlist('checked')
     for cal in checked:
         # grab events from cal
         events = gcal_service.events().list(calendarId=cal, orderBy='startTime', 
@@ -230,7 +229,7 @@ def showBlocking():
                 freeBlocks.append(free)
 
     # check if we missed any days, if so add them as free
-    if(arrend > upTo):
+    if(upTo != None) and (arrend > upTo):
         diff = arrend - upTo
         for i in range(0, diff.days):
             superFree = {"start": upTo.shift(days=(i+1), hours=timestart).format("MM-DD-YYYY h:mmA"),
@@ -239,8 +238,6 @@ def showBlocking():
             freeBlocks.append(superFree)
 
     flask.g.free = freeBlocks
-    for k in list(checked.keys()):
-        del(checked[k])
     return flask.render_template('busy.html')
 
 #############################
@@ -248,21 +245,6 @@ def showBlocking():
 #  Helper functions (routed from URLs)
 #
 #############################
-
-@app.route("/addToChecked")
-def addToChecked():
-    app.logger.debug("Adding to checked list")
-    calId = flask.request.args.get("id")
-    # placeholder, easier to use dict for lookups, delete, etc
-    checked[calId] = None
-    return flask.jsonify(None)
-
-@app.route("/rmFromChecked")
-def rmFromChecked():
-    app.logger.debug("Removing from checked list")
-    calId = flask.request.args.get("id")
-    del(checked[calId])
-    return flask.jsonify(None)
 
 ####
 #
