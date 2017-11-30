@@ -71,6 +71,11 @@ def choose():
     flask.g.calendars = list_calendars(gcal_service)
     return render_template('index.html')
 
+'''
+- First Sorts the items according to their dates.
+- Then sorts the items according to their start time
+- Returns sorted list
+'''
 def sortEvents(master, arrbeg, arrend):
     # sorts an array of TimeBlocks
     dayRange = arrend - arrbeg
@@ -80,13 +85,15 @@ def sortEvents(master, arrbeg, arrend):
     allDays.append([])
     for i in range(0, dayRange):
         allDays.append([])
+
     for event in master:
-        # check if longer than a day event
+        # check if event is longer than a day
         length = event.end.floor('day') - event.start.floor('day')
         if(length.days != 0):
-            # split the event into two
+            # split the event into two, only if we need to/it's in the range
             if(not (event.end.floor('day') > arrend)):
                 newEvent = TimeBlock(event.end.floor('day'), event.end, event.summary)
+                # make sure we are not adding redundant events
                 if(newEvent.start != newEvent.end):
                     master.append(newEvent)
                     event.end = event.start.ceil('day')
@@ -97,6 +104,7 @@ def sortEvents(master, arrbeg, arrend):
         index = index.days
         allDays[index].append(event)
 
+    # sort by time
     for i in range(0, len(allDays)):
         allDays[i] = sorted(allDays[i], key=myKey)
     
@@ -107,9 +115,14 @@ def sortEvents(master, arrbeg, arrend):
             print(event)
     return allDays
 
+# used by eventSort for sorting events by start time
 def myKey(item):
     return item.start
 
+'''
+- Calculates the free blocks given a list of days and the events in each day
+- Returns free blocks list
+'''
 def overallFree(sortedList, arrbeg, arrend, timestart, timeend):
     freeBlocks = []
     
@@ -118,7 +131,8 @@ def overallFree(sortedList, arrbeg, arrend, timestart, timeend):
             # no events on this day
             superFree = {"start": arrbeg.shift(days=i).format("MM-DD-YYYY h:mmA"),
                          "end": arrbeg.shift(days=i, hours=(timeend - timestart)).format("MM-DD-YYYY h:mmA"),
-                         "a": "No events on this day"}
+                         "a": "No events on this day"
+                        }
             freeBlocks.append(superFree)
         else:
             # initialize master event for the day
@@ -163,9 +177,13 @@ def overallFree(sortedList, arrbeg, arrend, timestart, timeend):
                                }
                         freeBlocks.append(free)
     
-    flask.g.free = freeBlocks
-    return
-        
+    return freeBlocks
+
+'''
+- Calculates busy blocks
+- Generates a master list of events
+- Calls sortEvents and overallFree to calculate free blocks
+'''
 @app.route("/calculate")
 def calculateEvents():
     app.logger.debug("Generating master list")
@@ -249,15 +267,18 @@ def calculateEvents():
     # sort our blocking results before display
     results = sorted(results, key=resultsKey)
     # send our final list to html for display
-    flask.g.busy=results
+    flask.g.busy = results
 
     # sort our master list with our helper function
     sortedEvents = sortEvents(masterList, arrbeg, arrend)
+
     # calculate free time with our helper function
-    overallFree(sortedEvents, arrbeg, arrend, timestart, timeend)
-    
+    freeBlocks = overallFree(sortedEvents, arrbeg, arrend, timestart, timeend)
+    flask.g.free = freeBlocks
+
     return flask.render_template('busy.html')
 
+# used by calculate to sort blocking times by start time
 def resultsKey(item):
     return item['startArrow']
 
