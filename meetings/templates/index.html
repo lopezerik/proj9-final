@@ -93,7 +93,7 @@
     prefer down then across). 
     -->
 {% if g.calendars is defined  %}
-<form action="/showBlocking">
+<form action="/calculate">
   <div class="row">
   {% for cal in g.calendars if cal.selected %}
           <div class="col-md-4">

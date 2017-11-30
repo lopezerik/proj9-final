@@ -71,9 +71,104 @@ def choose():
     flask.g.calendars = list_calendars(gcal_service)
     return render_template('index.html')
 
-@app.route("/showBlocking")
-def showBlocking():
-    app.logger.debug("Generating blocking list")
+def sortEvents(master, arrbeg, arrend):
+    # sorts an array of TimeBlocks
+    dayRange = arrend - arrbeg
+    dayRange = dayRange.days
+    
+    allDays = []
+    allDays.append([])
+    for i in range(0, dayRange):
+        allDays.append([])
+    for event in master:
+        # check if longer than a day event
+        length = event.end.floor('day') - event.start.floor('day')
+        if(length.days != 0):
+            # split the event into two
+            if(not (event.end.floor('day') > arrend)):
+                newEvent = TimeBlock(event.end.floor('day'), event.end, event.summary)
+                if(newEvent.start != newEvent.end):
+                    master.append(newEvent)
+                    event.end = event.start.ceil('day')
+
+        # index = number of days away from the begining of the specified range
+        index = (event.start.floor('day').to('utc').floor('day') - 
+                arrbeg.floor('day').to('utc').floor('day'))
+        index = index.days
+        allDays[index].append(event)
+
+    for i in range(0, len(allDays)):
+        allDays[i] = sorted(allDays[i], key=myKey)
+    
+    print("testing whole sort")
+    for day in allDays:
+        print("new day")
+        for event in day:
+            print(event)
+    return allDays
+
+def myKey(item):
+    return item.start
+
+def overallFree(sortedList, arrbeg, arrend, timestart, timeend):
+    freeBlocks = []
+    
+    for i in range(0, len(sortedList)):
+        if len(sortedList[i]) == 0:
+            # no events on this day
+            superFree = {"start": arrbeg.shift(days=i).format("MM-DD-YYYY h:mmA"),
+                         "end": arrbeg.shift(days=i, hours=(timeend - timestart)).format("MM-DD-YYYY h:mmA"),
+                         "a": "No events on this day"}
+            freeBlocks.append(superFree)
+        else:
+            # initialize master event for the day
+            masterStart = arrow.get("1970-01-01T12:00:00-08:00")
+            masterEnd = arrow.get("1970-01-01T12:30:00-08:00")
+            master = TimeBlock(masterStart, masterEnd, "Master")
+            initialized = False
+            # loop through events for the day
+            # merge events and calc free time for the day 
+
+            for event in sortedList[i]:
+                # create timeblock event
+                eventStart = arrow.get(event.start)
+                eventEnd = arrow.get(event.end)
+                eventBlock = TimeBlock(eventStart, eventEnd, event.summary)
+                # if we haven't added the first even
+                if(not(initialized)):
+                    master.initMaster(eventBlock)
+                    initialized = True
+                else:
+                    # else merge with master block
+                    master.merge(eventBlock)
+            # create free block and calculate free time
+            freeStart = ((sortedList[i][0]).start).floor('day')
+            freeStart = freeStart.shift(hours=timestart)
+            freeEnd = ((sortedList[i][0]).start).floor('day')
+            freeEnd = freeEnd.shift(hours=timeend)
+            free = FreeBlock(freeStart, freeEnd)
+            free.calcFree(master)
+                
+            # if free time not empty, add it to a g variable
+            if(not(free.empty)):
+                for block in free.disjointSet:
+                    aptStart = block.start.floor('day').shift(hours=timestart)
+                    aptEnd = block.start.floor('day').shift(hours=timeend)
+                    # if the free block is within the range
+                    if(aptStart < block.end <= aptEnd):
+                        # add it to the set 
+                        free = {"start": block.start.format("MM-DD-YYYY h:mmA"), 
+                                "end": block.end.format("MM-DD-YYYY h:mmA"),
+                                "a": block.summary
+                               }
+                        freeBlocks.append(free)
+    
+    flask.g.free = freeBlocks
+    return
+        
+@app.route("/calculate")
+def calculateEvents():
+    app.logger.debug("Generating master list")
     # Get credentials and gcal_service to pull events
     credentials = valid_credentials()
     if not credentials:
@@ -100,18 +195,16 @@ def showBlocking():
     flask.g.range = [arrbeg.format("MM-DD-YYYY"), arrend.format("MM-DD-YYYY"), arrbeg.format("h:mmA"), 
                      arrend.format("h:mmA")]
 
-    results = []
-    allDays = []
     # loop through all calenders that were checked on the main page
     checked = request.values.getlist('checked')
+    masterList = []
+    results = []
     for cal in checked:
-        # grab events from cal
+    # grab events from cal
         events = gcal_service.events().list(calendarId=cal, orderBy='startTime', 
                         singleEvents=True, timeMin=beg, timeMax=end).execute()
         items = events["items"]
         calName = events['summary']
-        currDate = None
-        singleDay = []
         for item in items:
             # skip if nonblocking event
             if ('transparency' in item) and (item['transparency'] != "opaque"):
@@ -136,17 +229,11 @@ def showBlocking():
             endClone = end.clone()
             endClone = endClone.floor('day')
             endClone = endClone.shift(hours=timeend)
-            
-            # Check if we are still on the same date, or if the first date
-            if(currDate == None):
-                currDate = startClone.floor('day')
-            elif(currDate < startClone.floor('day')):
-                # if we are not the same day, add the events from the day to our list
-                if(len(singleDay) != 0):
-                    allDays.append(list(singleDay))
-                singleDay.clear()
-                currDate = startClone.floor('day')
-            
+
+            # create new event and add to our master list of events
+            newEvent = TimeBlock(start, end, calName)
+            masterList.append(newEvent)
+            # if in our range
             if (startClone < end <= endClone):
                 app.logger.debug("Adding a busy appointment")
                 appt = { "summary": item['summary'],
@@ -156,89 +243,23 @@ def showBlocking():
                       "endArrow": end,
                       "cal": calName
                       }
-
+                # append appointment
                 results.append(appt)
-                singleDay.append(appt)
-        if(len(singleDay) != 0):
-            allDays.append(list(singleDay))
+
+    # sort our blocking results before display
+    results = sorted(results, key=resultsKey)
+    # send our final list to html for display
+    flask.g.busy=results
+
+    # sort our master list with our helper function
+    sortedEvents = sortEvents(masterList, arrbeg, arrend)
+    # calculate free time with our helper function
+    overallFree(sortedEvents, arrbeg, arrend, timestart, timeend)
     
-    flask.g.busy = results
-    
-    freeBlocks = []
-    upTo = None
-    for day in allDays:
-        # check if range starts before any events
-        testDay = day[0]['startArrow'].floor('day')
-        if(upTo == None):
-            # we need to add the days which there are no events to the free block list
-            if(arrbeg < testDay):
-                diff = testDay - arrbeg
-                for i in range(0, diff.days + 1):
-                    superFree = {"start": arrbeg.shift(days=(i)).format("MM-DD-YYYY h:mmA"),
-                                 "end": arrbeg.shift(days=(i), hours=(-timestart + timeend)
-                                        ).format("MM-DD-YYYY h:mmA"),
-                                 "a": "No events on this day for this calendar"}
-                    freeBlocks.append(superFree)
-            upTo = testDay
-        elif(upTo < testDay):
-            # if there is a day between events when there is no events, add in the 
-            # free days to the free block list
-            diff = testDay - upTo
-            for i in range(0, diff.days - 1):
-                superFree = {"start": upTo.shift(days=(i+1), hours=timestart).format("MM-DD-YYYY h:mmA"),
-                             "end": upTo.shift(days=(i+1), hours=(timeend)
-                                    ).format("MM-DD-YYYY h:mmA"),
-                             "a": "No events on this day for this calendar"}
-                freeBlocks.append(superFree)
-            upTo = testDay
-
-        # initialize master event for the day
-        masterStart = arrow.get("1970-01-01T12:00:00-08:00")
-        masterEnd = arrow.get("1970-01-01T12:30:00-08:00")
-        master = TimeBlock(masterStart, masterEnd, "Master")
-        initialized = False
-        # loop through events for the day
-        # merge events and calc free time for the day 
-        for event in day:
-            # create timeblock event
-            eventStart = arrow.get(event['startArrow'])
-            eventEnd = arrow.get(event['endArrow'])
-            eventBlock = TimeBlock(eventStart, eventEnd, event['cal'])
-            # if we haven't added the first even
-            if(not(initialized)):
-                master.initMaster(eventBlock)
-                initialized = True
-            else:
-                # else merge with master block
-                master.merge(eventBlock)
-        # create free block and calculate free time
-        freeStart = (day[0]['startArrow']).floor('day')
-        freeStart = freeStart.shift(hours=timestart)
-        freeEnd = (day[0]['startArrow']).floor('day')
-        freeEnd = freeEnd.shift(hours=timeend)
-        free = FreeBlock(freeStart, freeEnd)
-        free.calcFree(master)
-        
-        # if free time not empty, add it to a g variable
-        if(not(free.empty)):
-            for block in free.disjointSet:
-                free = {"start": block.start.format("MM-DD-YYYY h:mmA"), 
-                        "end": block.end.format("MM-DD-YYYY h:mmA"),
-                        "a": block.summary
-                       }
-                freeBlocks.append(free)
-
-    # check if we missed any days, if so add them as free
-    if(upTo != None) and (arrend > upTo):
-        diff = arrend - upTo
-        for i in range(0, diff.days):
-            superFree = {"start": upTo.shift(days=(i+1), hours=timestart).format("MM-DD-YYYY h:mmA"),
-                         "end": upTo.shift(days=(i+1), hours=timeend).format("MM-DD-YYYY h:mmA"),
-                         "a": "No events on this day"}
-            freeBlocks.append(superFree)
-
-    flask.g.free = freeBlocks
     return flask.render_template('busy.html')
+
+def resultsKey(item):
+    return item['startArrow']
 
 #############################
 #
