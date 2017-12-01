@@ -15,7 +15,7 @@ class TimeBlock:
         return
     
     def __str__(self):
-        return self.summary + " " + self.start.format("MM-DD-YYYY") + " " + self.end.format("MM-DD-YYYY")
+        return self.summary + " " + self.start.format("MM-DD-YYYY h:mmA") + " " + self.end.format("MM-DD-YYYY h:mmA")
 
     def initMaster(self, other):
         self.disjointSet.append(other)
@@ -73,6 +73,10 @@ class FreeBlock:
         for block in masterBlock.disjointSet:
             calName = block.summary
             if(block.start < currStart and block.end > currEnd):
+                # block takes up all free time, done searching, no free time available
+                self.empty = True;
+                return
+            elif(block.start == currStart and block.end == currEnd):
                 # block takes up all free time, done searching, no free time available
                 self.empty = True;
                 return
