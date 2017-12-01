@@ -3,6 +3,7 @@ from flask import render_template
 from flask import request
 from flask import url_for
 import uuid
+import sys
 
 import json
 import logging
@@ -12,8 +13,17 @@ import arrow # Replacement for datetime, based on moment.js
 # import datetime # But we still need time
 from dateutil import tz  # For interpreting local times
 
+# database
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+from pymongo import ReturnDocument
 
-# OAuth2  - Google library implementation for convenience
+# for random meeting code
+import random
+import string
+import copy
+
+# OAuth2  - Google library implementavailableation for convenience
 from oauth2client import client
 import httplib2   # used in oauth2 flow
 
@@ -26,6 +36,7 @@ from ftc import *
 # Globals
 ###
 import config
+
 if __name__ == "__main__":
     CONFIG = config.configuration()
 else:
@@ -39,6 +50,15 @@ app.secret_key=CONFIG.SECRET_KEY
 SCOPES = 'https://www.googleapis.com/auth/calendar.readonly'
 CLIENT_SECRET_FILE = CONFIG.GOOGLE_KEY_FILE  ## You'll need this
 APPLICATION_NAME = 'MeetMe class project'
+
+MONGO_CLIENT_URL = "mongodb://{}:{}@{}:{}/{}".format(
+    CONFIG.DB_USER,
+    CONFIG.DB_USER_PW,
+    CONFIG.DB_HOST, 
+    CONFIG.DB_PORT, 
+    CONFIG.DB)
+
+print("Using URL '{}'".format(MONGO_CLIENT_URL))
 
 #############################
 #
@@ -69,7 +89,7 @@ def choose():
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
     flask.g.calendars = list_calendars(gcal_service)
-    return render_template('index.html')
+    return render_template('available.html')
 
 '''
 - First Sorts the items according to their dates.
@@ -101,7 +121,12 @@ def sortEvents(master, arrbeg, arrend):
         # index = number of days away from the begining of the specified range
         index = (event.start.floor('day').to('utc').floor('day') - 
                 arrbeg.floor('day').to('utc').floor('day'))
+        print("*******")
+        print(index)
+        print(event)
         index = index.days
+        print(index)
+        print("*******")
         allDays[index].append(event)
 
     # sort by time
@@ -184,14 +209,16 @@ def overallFree(sortedList, arrbeg, arrend, timestart, timeend):
 - Generates a master list of events
 - Calls sortEvents and overallFree to calculate free blocks
 '''
-@app.route("/calculate")
-def calculateEvents():
+@app.route("/calculate/<code>/<save>")
+def calculateEvents(code, save):
+    easySet(code)
     app.logger.debug("Generating master list")
     # Get credentials and gcal_service to pull events
     credentials = valid_credentials()
     if not credentials:
         app.logger.debug("Redirecting to authorization")
-        return flask.redirect(flask.url_for('oauth2callback'))
+        flask.redirect(flask.url_for('myoauth2callback'))
+        return calculateEvents(code, save)
 
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
@@ -215,6 +242,9 @@ def calculateEvents():
 
     # loop through all calenders that were checked on the main page
     checked = request.values.getlist('checked')
+    print("checked")
+    print(checked)
+    flask.g.checked = checked
     masterList = []
     results = []
     for cal in checked:
@@ -271,22 +301,218 @@ def calculateEvents():
 
     # sort our master list with our helper function
     sortedEvents = sortEvents(masterList, arrbeg, arrend)
-
+    
     # calculate free time with our helper function
     freeBlocks = overallFree(sortedEvents, arrbeg, arrend, timestart, timeend)
     flask.g.free = freeBlocks
-
-    return flask.render_template('busy.html')
+    flask.g.meeting_code = code
+    if(save == 'true'):
+        # kind of hacky
+        # we cant store our TimeBlock objects in the database :(
+        # so we copy the list
+        emptySort = copy.deepcopy(sortedEvents)
+        # clear the copy
+        for li in emptySort:
+            del li[:]
+        # convert items from TimeBlocks to tuples
+        for i in range(0, len(emptySort)):
+            print("here")
+            for event in sortedEvents[i]:
+                tup = (str(event.start), str(event.end), event.summary)
+                emptySort[i].append(tup)
+        # save to database
+        # try to access database
+        try: 
+            dbclient = MongoClient(MONGO_CLIENT_URL)
+            db = getattr(dbclient, CONFIG.DB)
+            meeting = db["Meeting:" + code]
+        except:
+            print("Failure opening database.  Is Mongo running? Correct password?")
+            sys.exit(1)
+        # database success
+        for item in meeting.find({"code": "Meeting:" + code}):
+            item_id = str(item.get('_id'))
+            item = meeting.find_one_and_update(
+                {'_id': ObjectId(item_id)},
+                {"$push": {
+                 "master_list": emptySort
+                }},
+                return_document=ReturnDocument.AFTER
+            )
+        return render_options(code)
+    else:
+        return flask.render_template('busy.html')
 
 # used by calculate to sort blocking times by start time
 def resultsKey(item):
     return item['startArrow']
 
+def masterMerge(master_list):
+    combined = []
+    for master in master_list:
+        for day in master:
+            for event in day:
+                combined.append(event)
+    return combined
+
+@app.route("/renderOptions/<code>")
+def render_options(code):
+    # try to access database
+    try: 
+        dbclient = MongoClient(MONGO_CLIENT_URL)
+        db = getattr(dbclient, CONFIG.DB)
+        meeting = db["Meeting:" + code]
+    except:
+        print("Failure opening database.  Is Mongo running? Correct password?")
+        sys.exit(1)
+    # database success
+    for item in meeting.find({"code": "Meeting:" + code}):
+        new_master_list = masterMerge(item["master_list"])
+        arrbeg = arrow.get(item['start'])
+        arrend = arrow.get(item['end'])
+        timestart = item['timestart']
+        timeend = item['timeend']
+    # sort
+    # continued hackiness
+    # now we need to convert back from list into TimeBlock for sorting purposes
+    toTimeBlock = copy.deepcopy(new_master_list)
+    for i in range(0, len(toTimeBlock)):
+        toTimeBlock[i] = TimeBlock(arrow.get(toTimeBlock[i][0]), arrow.get(toTimeBlock[i][1]), 
+                          toTimeBlock[i][2])
+    # sort our converted objects appropriateley
+    sortedMaster = sortEvents(toTimeBlock, arrbeg, arrend)
+    new_free_blocks = overallFree(sortedMaster, arrbeg, arrend, timestart, timeend)
+    flask.g.free = new_free_blocks
+
+    new_range = [arrbeg.format("MM-DD-YYYY"), arrend.format("MM-DD-YYYY"), 
+                 arrbeg.format("h:mmA"), arrend.format("h:mmA")]
+    flask.g.range = new_range
+    flask.g.meeting_code = code
+    return flask.render_template('options.html')
+
+@app.route('/contToMeeting/<save>/<code>', methods=['POST'])
+def contToMeeting(save, code):
+    flask.g.meeting_code = code
+    flask.session["meeting_code"] = code
+    easySet(code)
+    app.logger.debug("Checking credentials for Google calendar access")
+    credentials = valid_credentials()
+    if not credentials:
+      app.logger.debug("Redirecting to authorization")
+      flask.redirect(flask.url_for('myoauth2callback'))
+      return contToMeeting(save, code)
+
+    gcal_service = get_gcal_service(credentials)
+    app.logger.debug("Returned from get_gcal_service")
+    flask.g.calendars = list_calendars(gcal_service)
+
+
+    if(save == 'true'):
+        return calculateEvents(code, 'true')
+    else:
+        return render_template('available.html')
+
+@app.route('/addToMeeting/<save>', methods=['POST'])
+def addToMeeting(save):
+    # redirect to google blah blah
+    # display the screen with the calendar selection
+    # calculate free time
+    # ask if it's good
+    # confirm and add to database
+
+    code = request.form.get('meeting_code')
+    flask.g.meeting_code = code
+    flask.session["meeting_code"] = code
+    easySet(code)
+
+    app.logger.debug("Checking credentials for Google calendar access")
+    credentials = valid_credentials()
+    if not credentials:
+      app.logger.debug("Redirecting to authorization")
+      return flask.redirect(flask.url_for('oauth2callback'))
+
+    gcal_service = get_gcal_service(credentials)
+    app.logger.debug("Returned from get_gcal_service")
+    flask.g.calendars = list_calendars(gcal_service)
+
+
+    if(save == 'true'):
+        return calculateEvents(code, 'true')
+    else:
+        return render_template('available.html')
+
+@app.route("/newCode")
+def newMeetingCode():
+    # try to access database
+    try: 
+        dbclient = MongoClient(MONGO_CLIENT_URL)
+        db = getattr(dbclient, CONFIG.DB)
+        meetings = db.meeting_codes
+    except:
+        print("Failure opening database.  Is Mongo running? Correct password?")
+        sys.exit(1)
+    
+    # database success
+    unique = False
+    while(not unique):
+        new_code = random_code()
+        if(unique_code(meetings, new_code)):
+            unique = True
+
+    # add code to database
+    meetings.insert_one({"code": new_code})
+    return new_code
+
+def random_code():
+    # random string generator from: 
+    # https://stackoverflow.com/questions/2257441/random-string-generation
+    # -with-upper-case-letters-and-digits-in-python
+    return ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
+
+def unique_code(database, code):
+    search = database.find({"code": code})
+    if search.count() == 0:
+        # code not in database, so it's unique
+        app.logger.debug("Found unique code")
+        return True
+    app.logger.debug("Not a unique code, try again")
+    return False
+
+@app.route("/checkCode", methods=['POST'])
+def checkCode():
+    # try to access database
+    try: 
+        dbclient = MongoClient(MONGO_CLIENT_URL)
+        db = getattr(dbclient, CONFIG.DB)
+        meeting = db.meeting_codes
+    except:
+        print("Failure opening database.  Is Mongo running? Correct password?")
+        sys.exit(1)
+    
+    # database success
+
+    code = request.form.get('code')
+    code = code.strip().upper()
+    if(not unique_code(meeting, code)):
+        # code exists
+        flask.g.exists = 'true'
+        flask.g.meeting_code = code
+        flask.session["meeting_code"] = code
+        return flask.render_template('index.html')
+    else:
+        flask.g.exists = 'false'
+        flask.g.meeting_code = code
+        return flask.render_template('index.html')
+    
 #############################
 #
 #  Helper functions (routed from URLs)
 #
 #############################
+
+@app.route("/my/<url>")
+def my_redirect(url):
+    return flask.render_template(url + ".html")
 
 ####
 #
@@ -391,9 +617,52 @@ def oauth2callback():
     ## but for the moment I'll just log it and go back to
     ## the main screen
     app.logger.debug("Got credentials")
-    return flask.redirect(flask.url_for('choose'))
+    flask.g.meeting_code = flask.session["meeting_code"]
+    flask.g.range = flask.session["new_range"]
+    return my_redirect("invite")
 
-#####
+@app.route('/myoauth2callback')
+def myoauth2callback():
+  """
+  The 'flow' has this one place to call back to.  We'll enter here
+  more than once as steps in the flow are completed, and need to keep
+  track of how far we've gotten. The first time we'll do the first
+  step, the second time we'll skip the first step and do the second,
+  and so on.
+  """
+  app.logger.debug("Entering oauth2callback")
+  flow =  client.flow_from_clientsecrets(
+      CLIENT_SECRET_FILE,
+      scope= SCOPES,
+      redirect_uri=flask.url_for('oauth2callback', _external=True))
+  ## Note we are *not* redirecting above.  We are noting *where*
+  ## we will redirect to, which is this function. 
+  
+  ## The *second* time we enter here, it's a callback 
+  ## with 'code' set in the URL parameter.  If we don't
+  ## see that, it must be the first time through, so we
+  ## need to do step 1. 
+  app.logger.debug("Got flow")
+  if 'code' not in flask.request.args:
+    app.logger.debug("Code not in flask.request.args")
+    auth_uri = flow.step1_get_authorize_url()
+    return flask.redirect(auth_uri)
+    ## This will redirect back here, but the second time through
+    ## we'll have the 'code' parameter set
+  else:
+    ## It's the second time through ... we can tell because
+    ## we got the 'code' argument in the URL.
+    app.logger.debug("Code was in flask.request.args")
+    auth_code = flask.request.args.get('code')
+    credentials = flow.step2_exchange(auth_code)
+    flask.session['credentials'] = credentials.to_json()
+    ## Now I can build the service and execute the query,
+    ## but for the moment I'll just log it and go back to
+    ## the main screen
+    app.logger.debug("Got credentials")
+    flask.g.meeting_code = flask.session["meeting_code"]
+    flask.g.range = flask.session["new_range"]
+    return
 #
 #  Option setting:  Buttons or forms that add some
 #     information into session state.  Don't do the
@@ -426,6 +695,92 @@ def setrange():
       daterange_parts[0], daterange_parts[1], 
       flask.session['begin_date'], flask.session['end_date']))
     return flask.redirect(flask.url_for("choose"))
+
+def easySet(code):
+    app.logger.debug("Entering easysetrange")  
+    # try to access database
+    try: 
+        dbclient = MongoClient(MONGO_CLIENT_URL)
+        db = getattr(dbclient, CONFIG.DB)
+        meeting = db["Meeting:" + code]
+    except:
+        print("Failure opening database.  Is Mongo running? Correct password?")
+        sys.exit(1)
+    # database success
+    for item in meeting.find({"code": "Meeting:" + code}):
+        arrbeg = arrow.get(item['start'])
+        arrend = arrow.get(item['end'])
+        timestart = item['timestart']
+        timeend = item['timeend']
+        begtime = item['begtime']
+        endtime = item['endtime']
+    beg = interpret_date(arrbeg.floor('day').format("MM/DD/YYYY"))
+    end = interpret_date(arrend.floor('day').format("MM/DD/YYYY"))
+    flask.session['begin_date'] = beg
+    flask.session['end_date'] = end
+    flask.session['begtime'] = begtime
+    flask.session['endtime'] = endtime
+
+    new_range = [arrbeg.format("MM-DD-YYYY"), arrend.format("MM-DD-YYYY"), 
+                 arrbeg.format("h:mmA"), arrend.format("h:mmA")]
+    flask.g.range = new_range
+    flask.g.meeting_code = code
+
+    flask.session["new_range"] = new_range
+    return
+
+@app.route('/newsetrange', methods=['POST'])
+def newsetrange():
+    """
+    User chose a date range with the bootstrap daterange
+    widget.
+    """
+    # replace with database rather than flask session
+    app.logger.debug("Entering newsetrange")  
+    daterange = request.form.get('daterange')
+    flask.session['daterange'] = daterange
+    begtime = request.form.get('timestart')
+    flask.session['begtime'] = begtime
+    endtime = request.form.get('timeend')
+    flask.session['endtime'] = endtime
+    daterange_parts = daterange.split()
+    beg = interpret_date(daterange_parts[0])
+    end = interpret_date(daterange_parts[2])
+    flask.session['begin_date'] = beg
+    flask.session['end_date'] = end
+    app.logger.debug("Setrange parsed {} - {}  dates as {} - {}".format(
+      daterange_parts[0], daterange_parts[1], 
+      flask.session['begin_date'], flask.session['end_date']))
+    arrbeg = arrow.get(beg).shift(hours=(time_to_int(begtime)))
+    arrend = arrow.get(end).shift(hours=(time_to_int(endtime)))
+    new_range = [arrbeg.format("MM-DD-YYYY"), arrend.format("MM-DD-YYYY"), 
+                 arrbeg.format("h:mmA"), arrend.format("h:mmA")]
+    flask.g.range = new_range
+    flask.session["new_range"] = new_range
+    # database
+    try: 
+        dbclient = MongoClient(MONGO_CLIENT_URL)
+        db = getattr(dbclient, CONFIG.DB)
+    except:
+        print("Failure opening database.  Is Mongo running? Correct password?")
+        sys.exit(1)
+    
+    # acquire a unique meeting code
+    new_code = newMeetingCode()
+    flask.g.meeting_code = new_code
+    # can't start a collection with a number
+    new_code = "Meeting:" + new_code
+    # add new collection to database
+    timestart = time_to_int(begtime)
+    timeend = time_to_int(endtime)
+    meeting = db.create_collection(new_code)
+    meeting.insert_one({"start": str(arrbeg), "end": str(arrend), 
+                        "timestart": timestart, "timeend": timeend,
+                        "begtime": begtime, "endtime": endtime,
+                        "master_list": [], "code": new_code})
+    
+    return my_redirect("invite")
+
 
 ####
 #
@@ -591,5 +946,5 @@ if __name__ == "__main__":
   # App is created above so that it will
   # exist whether this is 'main' or not
   # (e.g., if we are running under green unicorn)
-  app.run(port=CONFIG.PORT,host="0.0.0.0")
+  app.run(port=CONFIG.PORT,host="0.0.0.0", threaded=True)
     

@@ -59,49 +59,18 @@
   <p> </p>
   <div class="col-md-4">
     <h3> Existing Meeting </h3>
-    <form action="/checkCode" method="post">
-      {% if g.meeting_code is defined %}
-      <input type='text' name="code" value='{{ g.meeting_code }}'> 
-      {% else %}
-      <input type='text' name="code" placeholder='Meeting Code'> 
-      {% endif %}
-      <input type="submit" value='Existing Meeting'>
+    <form>
+    <input type='text' name="code" placeholder='Meeting Code'> 
+    <button onclick='existing()'> Existing Meeting </button>
     </form>
   </div>
-  
-  {% if g.meeting_code is defined %}
-  {% if g.exists == 'true' %}
-    <form action='' name='choice' method="post">
-      <div class="col-md-4">
-        <input type='submit' onclick='contribute()' value="Add your availability">
-        <br>
-        <input type='submit' onclick='checkup()' value='Check on existing meeting'>
-        <input type="hidden" value="{{ g.meeting_code }}" name="secret">
-      </div>
-    </form>
-  {% else %}
-    <div class="col-md-4">
-      <b> INVALID CODE <b>
-    </div>
-  {% endif %}
-  {% endif %}
+
   </div>  <!-- container (for bootstrap) -->
   </body> 
 <script>
     function newMeeting(){
         window.location.replace('/my/newMeeting');
     }
-    function contribute(){
-        var meeting_code = $('input[name="secret"]').val();
-        document.choice.action = "/contToMeeting/false/" + meeting_code;
-    }
-    
-    function checkup(){
-        var meeting_code = $('input[name="secret"]').val();
-        document.choice.method = "";
-        document.choice.action = "/renderOptions/" + meeting_code;
-    }
-    
     function existing(){
         var meeting_code = $('input[name="code"]').val();
         $.getJSON("/checkCode", {'code': meeting_code},

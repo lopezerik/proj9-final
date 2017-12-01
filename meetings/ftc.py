@@ -15,7 +15,8 @@ class TimeBlock:
         return
     
     def __str__(self):
-        return self.summary + " " + self.start.format("MM-DD-YYYY h:mmA") + " " + self.end.format("MM-DD-YYYY h:mmA")
+        return (self.summary + " " + self.start.format("MM-DD-YYYY h:mmA") + " " + 
+                                     self.end.format("MM-DD-YYYY h:mmA"))
 
     def initMaster(self, other):
         self.disjointSet.append(other)

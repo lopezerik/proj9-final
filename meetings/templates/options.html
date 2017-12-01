@@ -1,6 +1,6 @@
 <!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
 <html lang="en"> <head>
-<title>Availability</title>
+<title>Current Meeting</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <link rel="stylesheet" type="text/css"
@@ -35,7 +35,7 @@
 <body>
 <div class="container">
 
-<h1>Your Availability</h1>
+<h1>Current Meeting Options</h1>
 <!--
    If there are any warnings or other messages from a prior action,
    they appear above the rest of the content, just until the next 
@@ -72,35 +72,16 @@
   </div> 
 {% endif %}
 <br>
-{% if g.busy is defined  %}
-  <h3> Blocking Events </h3>
-  {% for item in g.busy %}
-        <div class="row">
-          <div class="col-md-12">
-	   <b>{{ item.summary }}</b> - {{ item.start }}  <b>-</b>  {{ item.end }}
-          </div>
-        </div>
-  {% endfor %}
-{% endif %}
-<br>
 {% if g.free is defined  %}
-
-  <h3> Free Blocks By Calendar</h3>
+  <h3> Current Group Free Times </h3>
   {% for item in g.free %}
         <div class="row">
           <div class="col-md-12">
-	   <b>{{ item.a }}</b> - {{ item.start }} - {{ item.end }}
+	   <b>Option {{ loop.index }} </b> - {{ item.start }} - {{ item.end }}
           </div>
         </div>
   {% endfor %}
   <input type="hidden" name="meeting_code" value="{{ g.meeting_code }}">
-  {% if g.checked is defined %}
-    {% for item in g.checked %}
-    <input type="hidden" name="checked" value="{{ item }}">
-    {% endfor %}
-  {% endif %}
-  <input type="submit" value="Back To Calendar Selection" onclick='dont_save()'>
-  <input type="submit" value="Done" onclick='save()'>
 {% endif %}
 </form>
 {% endif %}
@@ -109,11 +90,5 @@
   </body> 
 
 <script>
-  function save(){
-      document.meeting.action = "/addToMeeting/true";
-  }
-  function dont_save(){
-      document.meeting.action = "/addToMeeting/false";
-  }
 </script>
 </html>
