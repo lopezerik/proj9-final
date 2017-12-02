@@ -211,7 +211,7 @@ def calculateEvents(code, save):
     credentials = valid_credentials()
     if not credentials:
         app.logger.debug("Redirecting to authorization")
-        flask.redirect(flask.url_for('myoauth2callback'))
+        flask.redirect(flask.url_for('myoauth2callback', back="available.html"))
         return calculateEvents(code, save)
 
     gcal_service = get_gcal_service(credentials)
@@ -396,13 +396,13 @@ def contToMeeting(save, code):
     # update session
     flask.g.meeting_code = code
     flask.session["meeting_code"] = code
-    easySet(code)
+    if "easy" not in flask.session.keys():
+        easySet(code)
     app.logger.debug("Checking credentials for Google calendar access")
     credentials = valid_credentials()
     if not credentials:
       app.logger.debug("Redirecting to authorization")
-      flask.redirect(flask.url_for('myoauth2callback'))
-      return contToMeeting(save, code)
+      return myoauth2callback("index.html")
 
     gcal_service = get_gcal_service(credentials)
     app.logger.debug("Returned from get_gcal_service")
@@ -624,8 +624,8 @@ def oauth2callback():
     flask.g.range = flask.session["new_range"]
     return my_redirect("invite")
 
-@app.route('/myoauth2callback')
-def myoauth2callback():
+@app.route('/myoauth2callback/<back>')
+def myoauth2callback(back):
   """
   The 'flow' has this one place to call back to.  We'll enter here
   more than once as steps in the flow are completed, and need to keep
@@ -633,11 +633,11 @@ def myoauth2callback():
   step, the second time we'll skip the first step and do the second,
   and so on.
   """
-  app.logger.debug("Entering oauth2callback")
+  app.logger.debug("Entering myoauth2callback")
   flow =  client.flow_from_clientsecrets(
       CLIENT_SECRET_FILE,
       scope= SCOPES,
-      redirect_uri=flask.url_for('oauth2callback', _external=True))
+      redirect_uri=flask.url_for('myoauth2callback', back=back, _external=True))
   ## Note we are *not* redirecting above.  We are noting *where*
   ## we will redirect to, which is this function. 
   
@@ -665,7 +665,8 @@ def myoauth2callback():
     app.logger.debug("Got credentials")
     flask.g.meeting_code = flask.session["meeting_code"]
     flask.g.range = flask.session["new_range"]
-    return
+    flask.g.exists = 'true'
+    return flask.render_template(back)
 #
 #  Option setting:  Buttons or forms that add some
 #     information into session state.  Don't do the
@@ -732,6 +733,7 @@ def easySet(code):
     flask.g.meeting_code = code
 
     flask.session["new_range"] = new_range
+    flask.session["easy"] = "Done"
     return
 
 # used when creating a new meeting
