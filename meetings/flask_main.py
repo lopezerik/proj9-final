@@ -16,7 +16,6 @@ from dateutil import tz  # For interpreting local times
 # database
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-from pymongo import ReturnDocument
 
 # for random meeting code
 import random
@@ -121,12 +120,7 @@ def sortEvents(master, arrbeg, arrend):
         # index = number of days away from the begining of the specified range
         index = (event.start.floor('day').to('utc').floor('day') - 
                 arrbeg.floor('day').to('utc').floor('day'))
-        print("*******")
-        print(index)
-        print(event)
         index = index.days
-        print(index)
-        print("*******")
         allDays[index].append(event)
 
     # sort by time
@@ -135,7 +129,7 @@ def sortEvents(master, arrbeg, arrend):
     
     print("testing whole sort")
     for day in allDays:
-        print("new day")
+        print("---")
         for event in day:
             print(event)
     return allDays
@@ -242,8 +236,6 @@ def calculateEvents(code, save):
 
     # loop through all calenders that were checked on the main page
     checked = request.values.getlist('checked')
-    print("checked")
-    print(checked)
     flask.g.checked = checked
     masterList = []
     results = []
@@ -306,6 +298,7 @@ def calculateEvents(code, save):
     freeBlocks = overallFree(sortedEvents, arrbeg, arrend, timestart, timeend)
     flask.g.free = freeBlocks
     flask.g.meeting_code = code
+    # if we are going to save the info in the database
     if(save == 'true'):
         # kind of hacky
         # we cant store our TimeBlock objects in the database :(
@@ -316,7 +309,6 @@ def calculateEvents(code, save):
             del li[:]
         # convert items from TimeBlocks to tuples
         for i in range(0, len(emptySort)):
-            print("here")
             for event in sortedEvents[i]:
                 tup = (str(event.start), str(event.end), event.summary)
                 emptySort[i].append(tup)
@@ -332,13 +324,13 @@ def calculateEvents(code, save):
         # database success
         for item in meeting.find({"code": "Meeting:" + code}):
             item_id = str(item.get('_id'))
+            # push list of sorted events into database
             item = meeting.find_one_and_update(
                 {'_id': ObjectId(item_id)},
                 {"$push": {
                  "master_list": emptySort
-                }},
-                return_document=ReturnDocument.AFTER
-            )
+                }}
+                )
         return render_options(code)
     else:
         return flask.render_template('busy.html')
@@ -347,6 +339,7 @@ def calculateEvents(code, save):
 def resultsKey(item):
     return item['startArrow']
 
+# takes multiple lists of master events and adds all the events into one list
 def masterMerge(master_list):
     combined = []
     for master in master_list:
@@ -355,6 +348,7 @@ def masterMerge(master_list):
                 combined.append(event)
     return combined
 
+# show the current meeting options
 @app.route("/renderOptions/<code>")
 def render_options(code):
     # try to access database
@@ -383,15 +377,23 @@ def render_options(code):
     sortedMaster = sortEvents(toTimeBlock, arrbeg, arrend)
     new_free_blocks = overallFree(sortedMaster, arrbeg, arrend, timestart, timeend)
     flask.g.free = new_free_blocks
-
+    # update session
     new_range = [arrbeg.format("MM-DD-YYYY"), arrend.format("MM-DD-YYYY"), 
                  arrbeg.format("h:mmA"), arrend.format("h:mmA")]
     flask.g.range = new_range
     flask.g.meeting_code = code
     return flask.render_template('options.html')
 
+'''
+- this is a variation on addToMeeting.
+- the reason we use it is because session variables are not set if you are not the 
+  meeting creator.
+- this variation sets the session variables before calculating in order to get 
+  the correct results.
+'''
 @app.route('/contToMeeting/<save>/<code>', methods=['POST'])
 def contToMeeting(save, code):
+    # update session
     flask.g.meeting_code = code
     flask.session["meeting_code"] = code
     easySet(code)
@@ -414,12 +416,7 @@ def contToMeeting(save, code):
 
 @app.route('/addToMeeting/<save>', methods=['POST'])
 def addToMeeting(save):
-    # redirect to google blah blah
-    # display the screen with the calendar selection
-    # calculate free time
-    # ask if it's good
-    # confirm and add to database
-
+    # update session
     code = request.form.get('meeting_code')
     flask.g.meeting_code = code
     flask.session["meeting_code"] = code
@@ -435,9 +432,10 @@ def addToMeeting(save):
     app.logger.debug("Returned from get_gcal_service")
     flask.g.calendars = list_calendars(gcal_service)
 
-
+    # if true calculate free times and save to database
     if(save == 'true'):
         return calculateEvents(code, 'true')
+    # else just show availabilty
     else:
         return render_template('available.html')
 
@@ -454,6 +452,7 @@ def newMeetingCode():
     
     # database success
     unique = False
+    # grab a code until it's unique
     while(not unique):
         new_code = random_code()
         if(unique_code(meetings, new_code)):
@@ -469,6 +468,8 @@ def random_code():
     # -with-upper-case-letters-and-digits-in-python
     return ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(6))
 
+# tests to see if code is unique
+# if code is in database, then it is not unique
 def unique_code(database, code):
     search = database.find({"code": code})
     if search.count() == 0:
@@ -478,6 +479,8 @@ def unique_code(database, code):
     app.logger.debug("Not a unique code, try again")
     return False
 
+# tests a code to see if it exists in our database
+# used to service html requests
 @app.route("/checkCode", methods=['POST'])
 def checkCode():
     # try to access database
@@ -696,6 +699,7 @@ def setrange():
       flask.session['begin_date'], flask.session['end_date']))
     return flask.redirect(flask.url_for("choose"))
 
+# sets session based on database info
 def easySet(code):
     app.logger.debug("Entering easysetrange")  
     # try to access database
@@ -714,6 +718,7 @@ def easySet(code):
         timeend = item['timeend']
         begtime = item['begtime']
         endtime = item['endtime']
+    # update session
     beg = interpret_date(arrbeg.floor('day').format("MM/DD/YYYY"))
     end = interpret_date(arrend.floor('day').format("MM/DD/YYYY"))
     flask.session['begin_date'] = beg
@@ -729,13 +734,13 @@ def easySet(code):
     flask.session["new_range"] = new_range
     return
 
+# used when creating a new meeting
 @app.route('/newsetrange', methods=['POST'])
 def newsetrange():
     """
     User chose a date range with the bootstrap daterange
     widget.
     """
-    # replace with database rather than flask session
     app.logger.debug("Entering newsetrange")  
     daterange = request.form.get('daterange')
     flask.session['daterange'] = daterange

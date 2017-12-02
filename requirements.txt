@@ -2,6 +2,8 @@ arrow
 Flask
 google-api-python-client
 httplib2==0.10.3
-oauth2client==2.2.0
-urllib3
 nose
+oauth2client==2.2.0
+pymongo
+urllib3
+

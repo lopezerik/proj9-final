@@ -1,17 +1,23 @@
-# proj8-Gcal
-Snarf appointment data from a selection of a user's Google calendars 
+# proj9-Gcal
+Meeting App   
 
 # Author
 Erik Lopez Raya  
 elopezr2 (at) uoregon edu
 
-# :calendar: Busy and Free Time Calculator :calendar:
-Takes your Google Calendar, a date range, and an appointment time range to calculate  
-what appointments you have scheduled during that period.  
-Also displays what free times you have in that range for each calendar.  
+# :calendar: Meeting App :calendar:
+Create and share a meeting with multiple people in your group.   
+Uses your Google Calendar in order to get your availability for the meeting.   
+
+# Multiple Users
+Uses mongoDB to keep state and allow for multiple users to coordinate on a meeting.  
+
+# Reworked
+I reworked the code from the last version to be much more modular / clean.  
+The final time display is also much better with the rework.  
 
 # Google API
 Makes use of the Google Calendar API to pull events from your Google Calendar(s).  
 
-# NOTE
-Use of the back button can produce undesired results. IF you use the back button, make sure to hit "Choose" again.  
+# Deployment
+Deployed the same as past projects. If this was hosted on a service it would be accessible from a specific URL.   
