@@ -1,7 +1,6 @@
 # Local
 secrets/*
 client_secret.json
-CONFIG.py
 node_modules
 static/js/*.min.js
 .goog_app_key.json
