@@ -5,6 +5,7 @@ Configure from
    command line  (unless invoked with proxied=True)
 in that order (i.e., in opposite order of precedence).
 
+
 A configuration namespace module returned by this module is
 suitable for configuring a Flask applicaton object.
 
